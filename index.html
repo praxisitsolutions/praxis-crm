@@ -37,6 +37,7 @@
   <div class="brand"><span class="dot"></span>Praxis CRM Κλήσεων</div>
   <nav class="tabs" role="tablist">
     <button role="tab" data-view="calls" aria-selected="true" id="tab-calls">Κλήσεις</button>
+    <button role="tab" data-view="calendar" aria-selected="false" id="tab-calendar">Ημερολόγιο</button>
     <button role="tab" data-view="list" aria-selected="false" id="tab-list">Λίστα</button>
     <button role="tab" data-view="reports" aria-selected="false" id="tab-reports">Αναφορές</button>
     <button role="tab" data-view="import" aria-selected="false" id="tab-import">Εισαγωγή</button>
@@ -46,6 +47,7 @@
 
 <main class="wrap">
   <div class="banner" id="banner" hidden></div>
+  <div class="duebar" id="duebar" hidden></div>
 
   <section id="view-setup-lists" hidden>
     <div class="card" style="margin-top:18px;max-width:700px">
@@ -68,10 +70,22 @@
       <div class="card">
         <h2 style="margin-top:0">Ιστορικό κλήσεων</h2>
         <ul class="hist" id="callhist"><li class="muted" style="border:0">—</li></ul>
-        <h2>Επανακλήσεις σήμερα</h2>
+        <h2>Επανακλήσεις & ραντεβού σήμερα</h2>
         <div id="todaycb" class="muted" style="font-size:14px">—</div>
       </div>
     </div>
+  </section>
+
+  <section id="view-calendar" hidden>
+    <div class="calbar">
+      <div class="actions" style="margin:0"><button class="btn small" id="calprev" aria-label="Προηγούμενος μήνας">‹</button><button class="btn small" id="caltoday">Σήμερα</button><button class="btn small" id="calnext" aria-label="Επόμενος μήνας">›</button></div>
+      <h1 id="calttl" class="calttl"></h1>
+      <div class="legend"><span class="lg cb">Επανάκληση</span><span class="lg late">Εκπρόθεσμη</span><span class="lg appt">Ραντεβού</span></div>
+    </div>
+    <div class="calstatus" id="calstatus"></div>
+    <div class="calgrid" id="calgrid"></div>
+    <h2>Ατζέντα</h2>
+    <div class="tablewrap"><table><thead><tr><th>Πότε</th><th>Τι</th><th>Υποψήφιος</th><th>Τηλέφωνο</th><th>Από</th><th>Τελευταία σημείωση</th></tr></thead><tbody id="calagenda"></tbody></table></div>
   </section>
 
   <section id="view-list" hidden>

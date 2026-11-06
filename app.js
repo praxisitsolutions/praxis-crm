@@ -8,7 +8,9 @@ CFG.tenantId = CFG.tenantId || lsGet("crm_tenant");
 CFG.clientId = CFG.clientId || lsGet("crm_client");
 CFG.siteUrl  = CFG.siteUrl  || lsGet("crm_site");
 const SCOPES = ["User.Read","Sites.ReadWrite.All"];
-const MANAGE_SCOPES = ["Sites.Manage.All"]; // ζητείται μόνο για τη δημιουργία των λιστών
+const MANAGE_SCOPES = ["Sites.Manage.All"]; // ζητείται μόνο για τη δημιουργία λιστών/στηλών
+const CAL_SCOPES = ["Calendars.ReadWrite"]; // υπενθυμίσεις στο ημερολόγιο Outlook του χρήστη
+const APP_URL = location.origin+location.pathname;
 const GRAPH = "https://graph.microsoft.com/v1.0";
 
 const STATUSES = [
@@ -32,7 +34,7 @@ const RETRY_MS = 2*3600e3, MAX_ATTEMPTS = 5, POLL_MS = 30000, LOCK_MS = 10*60e3;
 /* SharePoint στήλες: κλειδί εφαρμογής -> εσωτερικό όνομα στήλης */
 const PF = {n:"Title",cat:"Category",a:"Area",ad:"Address",f:"LegalForm",p:"ContactPerson",ph:"Phone",phk:"PhoneKey",em:"Email",w:"Website",src:"Source",
   status:"Status",attempts:"Attempts",lastBy:"LastBy",notes:"Notes",hidden:"Hidden",afm:"AFM",gemi:"GEMI",turnover:"Turnover",employees:"Employees",
-  finYear:"FinYear",finNotes:"FinNotes",lockedBy:"LockedBy",lastCallAt:"LastCallAt",callbackAt:"CallbackAt",lockedUntil:"LockedUntil"};
+  finYear:"FinYear",finNotes:"FinNotes",lockedBy:"LockedBy",lastCallAt:"LastCallAt",callbackAt:"CallbackAt",lockedUntil:"LockedUntil",calEvent:"CalEventId"};
 const PDATES = new Set(["lastCallAt","callbackAt","lockedUntil"]);
 const PNUM = new Set(["attempts","turnover","employees","finYear"]);
 const CF = {name:"Title",pid:"ProspectId",s:"Status",n:"Note",cb:"CallbackAt",by:"CallerName",byEmail:"CallerEmail",t:"CallAt",manual:"Manual"};
@@ -41,7 +43,7 @@ const PROSPECT_COLUMNS = [
   ["Category","text"],["Area","text"],["Address","text"],["LegalForm","text"],["ContactPerson","text"],["Phone","text"],["PhoneKey","text",true],
   ["Email","text"],["Website","text"],["Source","text"],["Status","text",true],["Attempts","number"],["LastCallAt","dateTime"],["LastBy","text"],
   ["CallbackAt","dateTime"],["Notes","note"],["Hidden","boolean"],["AFM","text"],["GEMI","text"],["Turnover","number"],["Employees","number"],
-  ["FinYear","number"],["FinNotes","note"],["LockedBy","text"],["LockedUntil","dateTime"]];
+  ["FinYear","number"],["FinNotes","note"],["LockedBy","text"],["LockedUntil","dateTime"],["CalEventId","text"]];
 const CALL_COLUMNS = [["ProspectId","number",true],["Status","text"],["Note","note"],["CallbackAt","dateTime"],["CallerName","text"],["CallerEmail","text"],["CallAt","dateTime",true],["Manual","boolean"]];
 
 /* =================== helpers =================== */
@@ -69,6 +71,7 @@ async function getToken(extra){
   try{ return (await pca.acquireTokenSilent(req)).accessToken; }
   catch(e){ await pca.acquireTokenRedirect(req); throw e; }
 }
+async function tokenSilent(scopes){ try{ return (await pca.acquireTokenSilent({scopes,account})).accessToken; }catch(e){ return null; } }
 $("btn-login").onclick=()=>pca.loginRedirect({scopes:SCOPES, prompt:"select_account"});
 $("btn-logout").onclick=()=>pca.logoutRedirect({account});
 $("setupform").addEventListener("submit",e=>{ e.preventDefault();
@@ -78,7 +81,8 @@ $("setupform").addEventListener("submit",e=>{ e.preventDefault();
 async function g(path, opt={}){
   const url = path.startsWith("http") ? path : GRAPH+path;
   for(let attempt=0; attempt<5; attempt++){
-    const tok = await getToken(opt.scopes);
+    const tok = opt.silent ? await tokenSilent(opt.scopes) : await getToken(opt.scopes);
+    if(!tok){ const e=new Error("Χωρίς δικαίωμα"); e.status=401; throw e; }
     const headers = Object.assign({"Authorization":"Bearer "+tok}, opt.headers||{});
     if(opt.body!==undefined && !(opt.body instanceof Blob)) headers["Content-Type"]="application/json";
     let r;
@@ -132,6 +136,13 @@ async function createLists(){
   msg.textContent="Έτοιμο.";
 }
 
+async function ensureColumns(){ // προσθήκη νέων στηλών σε λίστες που φτιάχτηκαν με παλιότερη έκδοση
+  try{
+    const d=await g(`/sites/${site.id}/lists/${lists.p.id}/columns?$select=name`); const have=new Set((d.value||[]).map(c=>c.name));
+    for(const col of PROSPECT_COLUMNS){ if(!have.has(col[0])) await g(`/sites/${site.id}/lists/${lists.p.id}/columns`,{method:"POST",scopes:MANAGE_SCOPES,silent:true,body:colDef(col)}); }
+  }catch(e){}
+}
+
 /* μετατροπές */
 function fromP(it){
   const f=it.fields||{}, o={id:String(it.id), etag:it.eTag};
@@ -167,12 +178,12 @@ async function addCall(o, c){
 }
 
 /* =================== προβολές =================== */
-const VIEWS=["calls","list","reports","import"];
+const VIEWS=["calls","calendar","list","reports","import"];
 function show(v){
   if(!VIEWS.includes(v)) v="calls";
   VIEWS.forEach(x=>{ $("view-"+x).hidden=x!==v; $("tab-"+x).setAttribute("aria-selected",x===v); });
   try{ history.replaceState(null,"","#"+v); }catch(e){}
-  if(v==="list") renderList(); if(v==="reports") renderReports();
+  if(v==="list") renderList(); if(v==="reports") renderReports(); if(v==="calendar") renderCalendar();
   if(v==="calls" && !currentId && pca && site && lists.p) nextCall();
 }
 document.querySelectorAll("nav.tabs button").forEach(b=>b.addEventListener("click",()=>show(b.dataset.view)));
@@ -257,7 +268,12 @@ function renderCallCard(){
     ${contactFacts(o)}
     <h2>Αποτέλεσμα κλήσης</h2>
     <div class="outcomes" id="outs">${STATUSES.filter(s=>s.key).map(s=>`<button data-k="${s.k}" aria-pressed="false"><span class="sw" style="background:${s.color}"></span>${esc(s.l)}<span class="k" style="margin-left:auto">${s.key}</span></button>`).join("")}</div>
-    <div id="cbwrap" hidden style="margin-top:12px"><label class="f">Ημερομηνία & ώρα επανάκλησης<input type="datetime-local" id="cbat"></label></div>
+    <div id="cbwrap" class="cbwrap" hidden>
+      <label class="f"><span id="cblabel">Ημερομηνία & ώρα επανάκλησης</span><input type="datetime-local" id="cbat"></label>
+      <div class="quick" id="cbquick">${QUICK.map((q,i)=>`<button type="button" class="btn small" data-q="${i}">${esc(q.l)}</button>`).join("")}</div>
+      <div class="cbwhen muted" id="cbwhen"></div>
+      <label class="chk"><input type="checkbox" id="cbcal"${calOn()?" checked":""}> Υπενθύμιση στο ημερολόγιο Outlook μου</label>
+    </div>
     <div class="row" style="margin-top:12px">
       <label class="f">Υπεύθυνος (αν τον μάθατε)<input id="ed-p" value="${esc(o.p)}"></label>
       <label class="f">Email (αν το δώσανε)<input id="ed-em" type="email" value="${esc(o.em)}"></label>
@@ -268,21 +284,46 @@ function renderCallCard(){
       <button class="btn" id="save-stay" disabled>Αποθήκευση</button>
       <button class="btn" id="edit-one">Στοιχεία / οικονομικά</button>
       <button class="btn" id="hide-one">Απόκρυψη</button>
-    </div>`;
+    </div>
+    <p class="muted savehint" id="savehint">Διάλεξε πρώτα αποτέλεσμα κλήσης (ή πάτα 1–9) για να ενεργοποιηθεί η αποθήκευση.</p>`;
   $("cp-ph").onclick=()=>copy(o.ph);
   card.querySelectorAll("#outs button").forEach(b=>b.onclick=()=>pick(b.dataset.k));
+  card.querySelectorAll("#cbquick [data-q]").forEach(b=>b.onclick=()=>{ $("cbat").value=toLocalInput(QUICK[Number(b.dataset.q)].f().getTime()); cbWhen(); });
+  $("cbat").addEventListener("input",cbWhen);
+  $("cbcal").onchange=e=>{ if(e.target.checked&&!calReady){ e.target.checked=false; connectCalendar(); } else lsSet("crm_cal",e.target.checked?"1":"0"); };
   $("save-next").onclick=()=>saveCall(true); $("save-stay").onclick=()=>saveCall(false);
   $("edit-one").onclick=()=>openDrawer(o.id);
   $("hide-one").onclick=async()=>{ try{ await patchP(o.id,{hidden:true,lockedBy:"",lockedUntil:null}); toast("Κρύφτηκε"); nextCall(); }catch(e){ toast(e.message); } };
   renderHistory(o);
 }
+const DATED = new Set(["callback","appointment"]);
+const atHour=(d,h)=>{ d.setHours(h,0,0,0); return d; };
+const QUICK=[
+  {l:"Σε 1 ώρα", f:()=>{ const d=new Date(Date.now()+3600e3); d.setMinutes(Math.ceil(d.getMinutes()/15)*15,0,0); return d; }},
+  {l:"Αύριο 10:00", f:()=>{ const d=new Date(); d.setDate(d.getDate()+1); return atHour(d,10); }},
+  {l:"Αύριο 13:00", f:()=>{ const d=new Date(); d.setDate(d.getDate()+1); return atHour(d,13); }},
+  {l:"Σε 2 ημέρες", f:()=>{ const d=new Date(); d.setDate(d.getDate()+2); return atHour(d,10); }},
+  {l:"Επόμενη Δευτέρα", f:()=>{ const d=new Date(); d.setDate(d.getDate()+((8-d.getDay())%7||7)); return atHour(d,10); }},
+  {l:"Σε 1 εβδομάδα", f:()=>{ const d=new Date(); d.setDate(d.getDate()+7); return atHour(d,10); }},
+  {l:"Σε 1 μήνα", f:()=>{ const d=new Date(); d.setMonth(d.getMonth()+1); return atHour(d,10); }},
+];
+function skipWeekend(d){ while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()+1); return d; }
+const toLocalInput = t => new Date(t-new Date(t).getTimezoneOffset()*6e4).toISOString().slice(0,16);
+function cbWhen(){
+  const v=$("cbat").value; const el=$("cbwhen"); if(!el) return;
+  if(!v){ el.textContent=""; return; }
+  const t=new Date(v); el.textContent=t.toLocaleString("el-GR",{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"})+(t.getTime()<Date.now()?" — ήδη πέρασε":"");
+}
 function pick(k){
   pickedOutcome=k;
   document.querySelectorAll("#outs button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.k===k));
-  $("cbwrap").hidden=k!=="callback";
-  if(k==="callback"&&!$("cbat").value){ const d=new Date(Date.now()+864e5); d.setMinutes(0,0,0); if(d.getHours()<9||d.getHours()>18) d.setHours(10);
-    $("cbat").value=new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,16); }
-  $("save-next").disabled=false; $("save-stay").disabled=false;
+  $("cbwrap").hidden=!DATED.has(k);
+  if(DATED.has(k)){
+    $("cblabel").textContent=k==="appointment"?"Ημερομηνία & ώρα ραντεβού":"Ημερομηνία & ώρα επανάκλησης";
+    if(!$("cbat").value) $("cbat").value=toLocalInput(skipWeekend(QUICK[1].f()).getTime());
+    cbWhen();
+  }
+  $("save-next").disabled=false; $("save-stay").disabled=false; $("savehint").hidden=true;
 }
 document.addEventListener("keydown",e=>{
   if($("app").hidden||$("view-calls").hidden||!currentId||!$("drawer").hidden) return;
@@ -292,7 +333,8 @@ document.addEventListener("keydown",e=>{
 async function saveCall(goNext){
   const id=currentId, o=offices.get(id); if(!o||!pickedOutcome) return;
   const now=Date.now(); const note=$("note").value.trim();
-  let cb=null; if(pickedOutcome==="callback"){ const v=$("cbat").value; cb=v?new Date(v).getTime():now+864e5; }
+  let cb=null; if(DATED.has(pickedOutcome)){ const v=$("cbat").value; cb=v?new Date(v).getTime():now+864e5; }
+  const wantCal=DATED.has(pickedOutcome)&&$("cbcal")&&$("cbcal").checked;
   $("save-next").disabled=true; $("save-stay").disabled=true;
   try{
     await addCall(o,{s:pickedOutcome,n:note,cb,t:now});
@@ -300,7 +342,11 @@ async function saveCall(goNext){
     if(note) patch.notes = (o.notes?o.notes+"\n":"")+`[${fmtDT(now)} ${me.name}] ${note}`;
     if(S[pickedOutcome].final) patch.hidden=true;
     await patchP(id,patch);
-    toast("Αποθηκεύτηκε: "+S[pickedOutcome].l);
+    let calMsg="";
+    if(o.calEvent && !(wantCal)) await removeEvent(o);
+    if(wantCal){ calMsg=await upsertEvent(o,pickedOutcome,cb,note) ? " · μπήκε στο Outlook" : " · δεν μπήκε στο Outlook"; }
+    else if(DATED.has(pickedOutcome)) askNotify();
+    toast("Αποθηκεύτηκε: "+S[pickedOutcome].l+(cb?" για "+fmtDT(cb):"")+calMsg);
     if(goNext){ skipped.add(id); currentId=null; await nextCall(); skipped.delete(id); } else { pickedOutcome=null; renderCallCard(); }
     renderTodayCallbacks();
   }catch(e){ toast(e.message||"Δεν αποθηκεύτηκε"); $("save-next").disabled=false; $("save-stay").disabled=false; }
@@ -312,10 +358,114 @@ function renderHistory(o){
 }
 function renderTodayCallbacks(){
   const end=new Date(); end.setHours(23,59,59,999);
-  const list=[...offices.values()].filter(o=>!o.hidden&&o.status==="callback"&&(o.callbackAt||0)<=end.getTime()).sort((a,b)=>(a.callbackAt||0)-(b.callbackAt||0));
-  $("todaycb").innerHTML=list.length?list.slice(0,20).map(o=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid var(--line)"><a href="#calls" data-open="${o.id}">${esc(o.n)}</a><span class="mono">${o.callbackAt?new Date(o.callbackAt).toLocaleTimeString("el-GR",{hour:"2-digit",minute:"2-digit"}):"χωρίς ώρα"}</span></div>`).join(""):"Καμία για σήμερα.";
-  $("todaycb").querySelectorAll("[data-open]").forEach(a=>a.onclick=e=>{e.preventDefault(); openCall(a.dataset.open);});
+  const start=new Date(); start.setHours(0,0,0,0);
+  const list=[...offices.values()].filter(o=>(o.status==="callback"&&!o.hidden&&(o.callbackAt||0)<=end.getTime())||(o.status==="appointment"&&o.callbackAt>=start.getTime()&&o.callbackAt<=end.getTime())).sort((a,b)=>(a.callbackAt||0)-(b.callbackAt||0));
+  const now=Date.now();
+  $("todaycb").innerHTML=list.length?list.slice(0,25).map(o=>{ const late=o.status==="callback"&&o.callbackAt&&o.callbackAt<start.getTime();
+    return `<div class="cbrow"><a href="#calls" data-open="${o.id}">${o.status==="appointment"?"Ραντεβού: ":""}${esc(o.n)}</a><span class="mono${late||(o.status==="callback"&&o.callbackAt<=now)?" due":""}">${o.callbackAt?(late?fmtD(o.callbackAt)+" ":"")+new Date(o.callbackAt).toLocaleTimeString("el-GR",{hour:"2-digit",minute:"2-digit"}):"χωρίς ώρα"}</span></div>`; }).join(""):"Καμία για σήμερα.";
+  $("todaycb").querySelectorAll("[data-open]").forEach(a=>a.onclick=e=>{e.preventDefault(); openItem(a.dataset.open);});
 }
+
+/* =================== Outlook ημερολόγιο =================== */
+let calReady=false;
+const calOn = () => calReady && lsGet("crm_cal")!=="0";
+async function checkCalendar(){ calReady=!!(await tokenSilent(CAL_SCOPES)); renderCalStatus(); }
+function connectCalendar(){
+  if(!confirm("Θα ανοίξει η σελίδα της Microsoft για να επιτρέψεις στην εφαρμογή να βάζει υπενθυμίσεις στο ημερολόγιο Outlook σου. Ό,τι δεν έχεις αποθηκεύσει στην τρέχουσα κλήση θα χαθεί. Συνέχεια;")) return;
+  lsSet("crm_cal","1"); release(currentId); pca.acquireTokenRedirect({scopes:CAL_SCOPES,account,redirectStartPage:APP_URL+"#calendar"});
+}
+function renderCalStatus(){
+  const el=$("calstatus"); if(!el) return;
+  el.innerHTML=calReady?`<span class="pill s-interested">Outlook συνδεδεμένο</span> <span class="muted">Οι επανακλήσεις και τα ραντεβού που αποθηκεύεις μπαίνουν και στο ημερολόγιό σου με υπενθύμιση 10′ πριν.</span>`
+    :`<button class="btn small" id="btn-cal">Σύνδεση με ημερολόγιο Outlook</button> <span class="muted">για να μπαίνουν οι επανακλήσεις και στο Outlook (και στο κινητό) με υπενθύμιση.</span>`;
+  if($("btn-cal")) $("btn-cal").onclick=connectCalendar;
+}
+function eventBody(o,kind,note){
+  const tel=(o.ph||"").replace(/\s/g,"");
+  return `<p><b>${esc(o.n)}</b>${o.cat?` — ${esc(o.cat)}`:""}${o.a?`, ${esc(o.a)}`:""}</p>
+<p>Τηλέφωνο: <a href="tel:${esc(tel)}">${esc(o.ph)}</a>${o.p?`<br>Υπεύθυνος: ${esc(o.p)}`:""}${o.em?`<br>Email: ${esc(o.em)}`:""}${o.ad?`<br>Διεύθυνση: ${esc(o.ad)}`:""}</p>
+${note?`<p>Σημείωση: ${esc(note)}</p>`:""}
+<p><a href="${APP_URL}#open=${o.id}">Άνοιγμα στο Praxis CRM</a></p>`;
+}
+const utc = t => new Date(t).toISOString().slice(0,19);
+async function upsertEvent(o,kind,t,note){
+  try{
+    if(o.calEvent) await removeEvent(o,true);
+    const appt=kind==="appointment";
+    const ev={subject:(appt?"Ραντεβού: ":"Επανάκληση: ")+o.n+(o.ph?" — "+o.ph:""),
+      body:{contentType:"HTML",content:eventBody(o,kind,note)},
+      start:{dateTime:utc(t),timeZone:"UTC"},end:{dateTime:utc(t+(appt?60:15)*60e3),timeZone:"UTC"},
+      isReminderOn:true,reminderMinutesBeforeStart:appt?30:10,showAs:appt?"busy":"free",categories:["Praxis CRM"]};
+    if(appt&&o.ad) ev.location={displayName:o.ad};
+    const r=await g("/me/events",{method:"POST",scopes:CAL_SCOPES,silent:true,body:ev});
+    const ref=me.email+"|"+r.id;
+    try{ await patchP(o.id,{calEvent:ref}); }catch(e){ o.calEvent=ref; }
+    return true;
+  }catch(e){ if(e.status===401){ calReady=false; renderCalStatus(); } return false; }
+}
+async function removeEvent(o,keepField){
+  const [owner,id]=String(o.calEvent||"").split("|");
+  if(id&&owner===me.email){ try{ await g("/me/events/"+encodeURIComponent(id),{method:"DELETE",scopes:CAL_SCOPES,silent:true}); }catch(e){} }
+  if(!keepField){ try{ await patchP(o.id,{calEvent:""}); }catch(e){} }
+}
+
+/* =================== ειδοποιήσεις =================== */
+const notified=new Set();
+function askNotify(){ try{ if("Notification" in window && Notification.permission==="default") Notification.requestPermission(); }catch(e){} }
+function checkDue(){
+  const now=Date.now();
+  const due=[...offices.values()].filter(o=>o.status==="callback"&&!o.hidden&&o.callbackAt&&o.callbackAt<=now&&o.callbackAt>now-12*3600e3&&(!o.lastBy||o.lastBy===me.name)&&!notified.has(o.id+":"+o.callbackAt));
+  for(const o of due){
+    notified.add(o.id+":"+o.callbackAt);
+    const b=$("duebar"); b.hidden=false;
+    b.innerHTML=`<span>⏰ Ώρα για επανάκληση: <b>${esc(o.n)}</b> ${esc(o.ph)}</span><span style="display:flex;gap:6px"><button class="btn small primary" id="due-open">Άνοιγμα</button><button class="btn small" id="due-x">Αργότερα</button></span>`;
+    $("due-open").onclick=()=>{ b.hidden=true; openItem(o.id); };
+    $("due-x").onclick=()=>{ b.hidden=true; };
+    try{ if("Notification" in window && Notification.permission==="granted"){ const n=new Notification("Επανάκληση: "+o.n,{body:(o.ph||"")+(o.p?" · "+o.p:""),tag:"crm-"+o.id}); n.onclick=()=>{ window.focus(); openItem(o.id); n.close(); }; } }catch(e){}
+  }
+}
+
+/* =================== προβολή ημερολογίου =================== */
+let calMonth=(()=>{ const d=new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; })();
+function calItems(){ return [...offices.values()].filter(o=>o.callbackAt&&(o.status==="callback"&&!o.hidden||o.status==="appointment")); }
+async function openItem(id){
+  const o=offices.get(id); if(!o) return;
+  if((S[o.status]||S.new).queue){ show("calls"); if(currentId&&currentId!==id) release(currentId); await claim(o); openCall(id); window.scrollTo({top:0,behavior:"smooth"}); }
+  else { show("list"); openDrawer(id); }
+}
+function renderCalendar(){
+  renderCalStatus();
+  const items=calItems(), now=Date.now(), todayK=dayKey(now);
+  const byDay={}; for(const o of items){ const k=dayKey(o.callbackAt); (byDay[k]=byDay[k]||[]).push(o); }
+  Object.values(byDay).forEach(a=>a.sort((x,y)=>x.callbackAt-y.callbackAt));
+  $("calttl").textContent=calMonth.toLocaleDateString("el-GR",{month:"long",year:"numeric"});
+  const first=new Date(calMonth); const offset=(first.getDay()+6)%7; first.setDate(1-offset);
+  const days=["Δευ","Τρι","Τετ","Πεμ","Παρ","Σαβ","Κυρ"];
+  let html=days.map(d=>`<div class="cal-h">${d}</div>`).join("");
+  for(let i=0;i<42;i++){
+    const d=new Date(first); d.setDate(first.getDate()+i); const k=dayKey(d.getTime());
+    if(i>=35&&d.getMonth()!==calMonth.getMonth()) break;
+    const list=byDay[k]||[];
+    html+=`<div class="cal-d${d.getMonth()!==calMonth.getMonth()?" out":""}${k===todayK?" today":""}"><div class="n">${d.getDate()}</div>${list.slice(0,4).map(o=>{
+      const cls=o.status==="appointment"?"appt":(o.callbackAt<=now?"late":"cb");
+      return `<button class="cal-i ${cls}" data-id="${o.id}" title="${esc(o.n)} — ${esc(o.ph)}"><span class="mono">${new Date(o.callbackAt).toLocaleTimeString("el-GR",{hour:"2-digit",minute:"2-digit"})}</span> ${esc(o.n)}</button>`; }).join("")}${list.length>4?`<div class="more">+${list.length-4} ακόμα</div>`:""}</div>`;
+  }
+  $("calgrid").innerHTML=html;
+  $("calgrid").querySelectorAll("[data-id]").forEach(b=>b.onclick=()=>openItem(b.dataset.id));
+  // ατζέντα
+  const start=new Date(); start.setHours(0,0,0,0);
+  const overdue=items.filter(o=>o.status==="callback"&&o.callbackAt<start.getTime()).sort((a,b)=>a.callbackAt-b.callbackAt);
+  const next=items.filter(o=>o.callbackAt>=start.getTime()&&o.callbackAt<start.getTime()+14*864e5).sort((a,b)=>a.callbackAt-b.callbackAt);
+  const row=o=>`<tr data-id="${o.id}"><td class="num">${new Date(o.callbackAt).toLocaleString("el-GR",{weekday:"short",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</td><td>${pill(o.status)}</td><td>${esc(o.n)}</td><td class="num">${esc(o.ph)}</td><td>${esc(o.lastBy)}</td><td>${esc((o.notes||"").split("\n").pop().slice(0,90))}</td></tr>`;
+  const undated=[...offices.values()].filter(o=>o.status==="callback"&&!o.hidden&&!o.callbackAt);
+  const urow=o=>`<tr data-id="${o.id}"><td class="num muted">χωρίς ημ/νία</td><td>${pill(o.status)}</td><td>${esc(o.n)}</td><td class="num">${esc(o.ph)}</td><td>${esc(o.lastBy)}</td><td>${esc((o.notes||"").split("\n").pop().slice(0,90))}</td></tr>`;
+  $("calagenda").innerHTML=(undated.length?`<tr><td colspan="6" class="sect">Επανακλήσεις χωρίς ημερομηνία (${undated.length}) — άνοιξέ τες και βάλε ημερομηνία</td></tr>`+undated.map(urow).join(""):"")+(overdue.length?`<tr><td colspan="6" class="sect late">Εκπρόθεσμες (${overdue.length})</td></tr>`+overdue.map(row).join(""):"")
+    +`<tr><td colspan="6" class="sect">Επόμενες 14 ημέρες (${next.length})</td></tr>`+(next.length?next.map(row).join(""):`<tr><td colspan="6" class="muted">Δεν υπάρχει κάτι προγραμματισμένο.</td></tr>`);
+  $("calagenda").querySelectorAll("tr[data-id]").forEach(tr=>tr.onclick=()=>openItem(tr.dataset.id));
+}
+$("calprev").onclick=()=>{ calMonth.setMonth(calMonth.getMonth()-1); renderCalendar(); };
+$("calnext").onclick=()=>{ calMonth.setMonth(calMonth.getMonth()+1); renderCalendar(); };
+$("caltoday").onclick=()=>{ calMonth=new Date(); calMonth.setDate(1); calMonth.setHours(0,0,0,0); renderCalendar(); };
 
 /* λίστα */
 function cats(){ return [...new Set([...DEFAULT_CATS, ...[...offices.values()].map(o=>o.cat).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,"el")); }
@@ -384,7 +534,7 @@ function openDrawer(id){
         await createP({...data,status:"new",attempts:0,hidden:false,notes:"",src:"Προστέθηκε χειροκίνητα"});
       } else {
         data.notes=$("d-notes").value; const ns=$("d-status").value;
-        if(ns!==o.status){ data.status=ns; if(ns!=="callback") data.callbackAt=null; await addCall(o,{s:ns,n:"Αλλαγή κατάστασης χειροκίνητα",manual:true,t:Date.now()}); }
+        if(ns!==o.status){ data.status=ns; if(!DATED.has(ns)){ data.callbackAt=null; if(o.calEvent) await removeEvent(o); } await addCall(o,{s:ns,n:"Αλλαγή κατάστασης χειροκίνητα",manual:true,t:Date.now()}); }
         await patchP(id,data);
       }
       toast(isNew?"Προστέθηκε":"Αποθηκεύτηκε"); closeDrawer(); refreshAll(); if(currentId===id) renderCallCard();
@@ -514,7 +664,7 @@ $("imprun").onclick=async()=>{
 
 /* =================== boot =================== */
 async function copy(t){ try{ await navigator.clipboard.writeText(t); toast("Αντιγράφηκε: "+t); }catch(e){ toast(t); } }
-function refreshAll(){ fillSelects(); renderQueueCount(); renderTodayCallbacks(); if(!$("view-list").hidden) renderList(); if(!$("view-reports").hidden) renderReports(); }
+function refreshAll(){ fillSelects(); renderQueueCount(); renderTodayCallbacks(); if(!$("view-list").hidden) renderList(); if(!$("view-reports").hidden) renderReports(); if(!$("view-calendar").hidden) renderCalendar(); checkDue(); }
 async function poll(){ if(document.hidden||!$("drawer").hidden||pendingImport) return; try{ await load(); refreshAll(); if(currentId&&offices.has(currentId)) renderHistory(offices.get(currentId)); else if(!currentId&&!$("view-calls").hidden) nextCall(); }catch(e){} }
 
 async function boot(){
@@ -541,9 +691,15 @@ async function boot(){
     banner(e.status===403||e.status===401?"Δεν έχεις πρόσβαση στο SharePoint site ή δεν δόθηκε συναίνεση στην εφαρμογή. Δες το README (βήμα 1-2).":(e.status===404?"Δεν βρέθηκε το SharePoint site: "+CFG.siteUrl:"Σφάλμα σύνδεσης: "+e.message));
     return;
   }
+  ensureColumns();
   fillSelects();
-  show((location.hash||"").slice(1)||"calls");
-  await nextCall(); renderTodayCallbacks();
+  const h=(location.hash||"").slice(1), m=h.match(/^open=(\d+)$/);
+  await checkCalendar();
+  if(m&&offices.has(m[1])){ await openItem(m[1]); }
+  else { show(h||"calls"); if(!$("view-calls").hidden&&!currentId) await nextCall(); }
+  renderTodayCallbacks(); checkDue();
+  setInterval(checkDue,30000);
+  window.addEventListener("hashchange",()=>{ const mm=(location.hash||"").match(/^#open=(\d+)$/); if(mm&&offices.has(mm[1])) openItem(mm[1]); });
   setInterval(poll,POLL_MS);
 }
 boot();

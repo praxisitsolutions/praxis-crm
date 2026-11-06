@@ -127,3 +127,37 @@ body{margin:0}
 .outcomes button .k{flex:none}
 a.btn{text-decoration:none;display:inline-flex;align-items:center}
 @media (max-width:600px){header.top{position:static}}
+
+/* επανακλήσεις & ημερολόγιο */
+.cbwrap{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:var(--r);background:var(--soft);display:flex;flex-direction:column;gap:10px}
+.cbwrap .f{max-width:320px}
+.quick{display:flex;flex-wrap:wrap;gap:6px}
+.cbwhen{font-size:14px}
+.chk{display:flex;gap:8px;align-items:center;font-size:14px;cursor:pointer}
+.chk input{width:18px;height:18px;accent-color:var(--accent)}
+.savehint{font-size:13px;margin:8px 0 0}
+.cbrow{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid var(--line)}
+.cbrow .due{color:var(--bad);font-weight:600}
+.duebar{margin-top:14px;padding:10px 14px;border-radius:var(--r);background:var(--info-soft);border:1px solid var(--info);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.calbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:18px}
+.calttl{font-size:22px;margin:0;text-transform:capitalize;flex:1 1 auto}
+.legend{display:flex;gap:12px;font-size:13px;color:var(--muted)}
+.lg::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.lg.cb::before{background:var(--info)} .lg.late::before{background:var(--bad)} .lg.appt::before{background:var(--good)}
+.calstatus{margin:12px 0;font-size:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.calgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.cal-h{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:4px 6px}
+.cal-d{background:var(--panel);border:1px solid var(--line);border-radius:8px;min-height:104px;padding:5px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.cal-d.out{opacity:.45}
+.cal-d.today{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.cal-d .n{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.cal-d.today .n{color:var(--accent);font-weight:600}
+.cal-i{font:inherit;font-size:12px;text-align:left;border:0;border-radius:5px;padding:3px 5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
+.cal-i .mono{font-size:11px}
+.cal-i.cb{background:var(--info-soft);color:var(--info)}
+.cal-i.late{background:var(--bad-soft);color:var(--bad)}
+.cal-i.appt{background:var(--good-soft);color:var(--good)}
+.cal-d .more{font-size:11px;color:var(--muted)}
+td.sect{font-weight:600;background:var(--soft)} td.sect.late{color:var(--bad)}
+#calagenda tr[data-id]{cursor:pointer}
+@media (max-width:700px){.cal-d{min-height:64px}.cal-i .mono{display:none}.cal-i{font-size:11px;padding:2px 3px}}
