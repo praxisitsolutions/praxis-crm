@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Praxis CRM Κλήσεων</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="app.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='9' fill='%230b6e5c'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<div class="login" id="login" hidden>
+  <div class="card">
+    <div class="brand"><span class="dot"></span>Praxis CRM Κλήσεων</div>
+    <h1>Σύνδεση</h1>
+    <p class="muted" style="margin:0;font-size:14px">Σύνδεση με τον εταιρικό λογαριασμό Microsoft 365. Τα δεδομένα αποθηκεύονται σε λίστες του SharePoint.</p>
+    <div class="err" id="lerr"></div>
+    <button class="btn primary" id="btn-login">Σύνδεση με Microsoft</button>
+  </div>
+</div>
+
+<div class="login" id="setup" hidden>
+  <form class="card" id="setupform" style="width:min(520px,100%)">
+    <div class="brand"><span class="dot"></span>Praxis CRM Κλήσεων</div>
+    <h1>Ρυθμίσεις σύνδεσης</h1>
+    <p class="muted" style="margin:0;font-size:14px">Λείπουν στοιχεία από το <code>config.js</code>. Μπορείς να τα γράψεις εδώ (αποθηκεύονται μόνο σε αυτόν τον browser) ή μόνιμα στο config.js. Οδηγίες στο README.</p>
+    <label class="f">Directory (tenant) ID<input id="cf-tenant" required></label>
+    <label class="f">Application (client) ID<input id="cf-client" required></label>
+    <label class="f">Διεύθυνση SharePoint site<input id="cf-site" required placeholder="https://εταιρεία.sharepoint.com/sites/όνομα"></label>
+    <button class="btn primary" type="submit">Αποθήκευση</button>
+  </form>
+</div>
+
+<div id="app" hidden>
+<header class="top"><div class="wrap">
+  <div class="brand"><span class="dot"></span>Praxis CRM Κλήσεων</div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-view="calls" aria-selected="true" id="tab-calls">Κλήσεις</button>
+    <button role="tab" data-view="list" aria-selected="false" id="tab-list">Λίστα</button>
+    <button role="tab" data-view="reports" aria-selected="false" id="tab-reports">Αναφορές</button>
+    <button role="tab" data-view="import" aria-selected="false" id="tab-import">Εισαγωγή</button>
+  </nav>
+  <a class="btn small" href="https://praxisitsolutions.github.io/tickets/" style="text-decoration:none">Tickets</a><span class="userchip"><span class="who" id="who"></span><button class="btn small" id="btn-logout">Έξοδος</button></span>
+</div></header>
+
+<main class="wrap">
+  <div class="banner" id="banner" hidden></div>
+
+  <section id="view-setup-lists" hidden>
+    <div class="card" style="margin-top:18px;max-width:700px">
+      <h1 style="font-size:20px;margin:0 0 8px">Πρώτη ρύθμιση</h1>
+      <p style="margin:0 0 12px">Δεν βρέθηκαν οι λίστες <b id="ln1"></b> και <b id="ln2"></b> στο site <span class="mono" id="sitename"></span>. Η εφαρμογή μπορεί να τις δημιουργήσει τώρα με όλες τις στήλες.</p>
+      <button class="btn primary" id="btn-create-lists">Δημιουργία λιστών</button>
+      <p class="muted" id="setupmsg" style="font-size:14px"></p>
+    </div>
+  </section>
+
+  <section id="view-calls">
+    <div class="queuebar">
+      <span class="count" id="qcount">Φόρτωση…</span>
+      <select id="qcat" aria-label="Κατηγορία"><option value="">Όλες οι κατηγορίες</option></select>
+      <select id="qarea" aria-label="Περιοχή"><option value="">Όλες οι περιοχές</option></select>
+      <button class="btn" id="btn-next">Επόμενη κλήση</button>
+    </div>
+    <div class="dialer">
+      <div class="card" id="callcard"><div class="empty"><b>Φορτώνω τα δεδομένα…</b></div></div>
+      <div class="card">
+        <h2 style="margin-top:0">Ιστορικό κλήσεων</h2>
+        <ul class="hist" id="callhist"><li class="muted" style="border:0">—</li></ul>
+        <h2>Επανακλήσεις σήμερα</h2>
+        <div id="todaycb" class="muted" style="font-size:14px">—</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-list" hidden>
+    <div class="filters">
+      <input type="search" id="q" placeholder="Αναζήτηση: επωνυμία, τηλέφωνο, email, υπεύθυνος, ΑΦΜ">
+      <select id="fcat" aria-label="Κατηγορία"><option value="">Όλες οι κατηγορίες</option></select>
+      <select id="farea" aria-label="Περιοχή"><option value="">Όλες οι περιοχές</option></select>
+      <select id="fstatus" aria-label="Κατάσταση"><option value="">Όλες οι καταστάσεις</option></select>
+      <label style="display:flex;gap:6px;align-items:center;font-size:14px"><input type="checkbox" id="fhidden"> Εμφάνιση κρυμμένων</label>
+      <button class="btn" id="btn-add">+ Νέος υποψήφιος</button>
+    </div>
+    <p class="muted" id="listcount" style="font-size:13px;margin:10px 0 0"></p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Επωνυμία</th><th>Κατηγορία</th><th>Περιοχή</th><th>Τηλέφωνο</th><th>Κατάσταση</th><th>Κλήσεις</th><th>Τελευταία</th><th>Σημείωση</th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table></div>
+  </section>
+
+  <section id="view-reports" hidden>
+    <div class="actions" style="justify-content:space-between;align-items:end">
+      <div class="row" style="flex:1 1 auto;max-width:720px">
+        <label class="f">Κατηγορία<select id="rcat"><option value="">Όλες</option></select></label>
+        <label class="f">Από<input type="date" id="rfrom"></label>
+        <label class="f">Έως<input type="date" id="rto"></label>
+      </div>
+      <div class="actions" style="margin:0">
+        <button class="btn" id="btn-csv">Υποψήφιοι (CSV)</button>
+        <button class="btn" id="btn-csv-calls">Ιστορικό κλήσεων (CSV)</button>
+      </div>
+    </div>
+    <div class="kpis" id="kpis"></div>
+    <div class="grid2">
+      <div><h2>Κατάσταση</h2><div class="card"><div class="bars" id="bystatus"></div></div></div>
+      <div><h2>Κλήσεις ανά ημέρα (τελευταίες 14)</h2><div class="card"><div class="days" id="bydays"></div></div></div>
+    </div>
+    <div class="grid2">
+      <div><h2>Ανά συνεργάτη (στο διάστημα)</h2><div class="tablewrap"><table><thead><tr><th>Συνεργάτης</th><th>Κλήσεις</th><th>Απάντησαν</th><th>Ενδιαφέρον</th></tr></thead><tbody id="bycaller"></tbody></table></div></div>
+      <div><h2>Ανά κατηγορία / περιοχή</h2><div class="tablewrap" style="max-height:360px"><table><thead><tr><th>Ομάδα</th><th>Σύνολο</th><th>Καλέστηκαν</th><th>Ενδιαφέρον</th></tr></thead><tbody id="byarea"></tbody></table></div></div>
+    </div>
+    <h2>Ενδιαφερόμενοι (leads)</h2>
+    <div class="tablewrap"><table><thead><tr><th>Επωνυμία</th><th>Κατηγορία</th><th>Κατάσταση</th><th>Υπεύθυνος</th><th>Τηλέφωνο</th><th>Email</th><th>Σημείωση</th></tr></thead><tbody id="leads"></tbody></table></div>
+  </section>
+
+  <section id="view-import" hidden>
+    <h2>Εισαγωγή υποψηφίων</h2>
+    <div class="card" style="max-width:860px;display:flex;flex-direction:column;gap:12px">
+      <p class="muted" style="font-size:14px;margin:0">Δέχεται <b>CSV</b> (π.χ. από Excel → «CSV UTF-8») ή το αρχείο <b>μεταφοράς JSON</b> της παλιάς εφαρμογής (μαζί με κλήσεις και σημειώσεις). Μπαίνουν μόνο όσοι δεν υπάρχουν ήδη (έλεγχος με τηλέφωνο ή επωνυμία+περιοχή). Στους υπάρχοντες συμπληρώνονται μόνο κενά πεδία· καταστάσεις, κλήσεις και σημειώσεις δεν αλλάζουν.</p>
+      <p class="muted" style="font-size:13px;margin:0">Στήλες CSV που αναγνωρίζονται: Επωνυμία, Κατηγορία, Περιοχή, Διεύθυνση, Νομική μορφή, Υπεύθυνος, Τηλέφωνο, Email, Website, Σημείωση/Πηγή, ΑΦΜ, ΓΕΜΗ, Κύκλος εργασιών, Εργαζόμενοι, Έτος.</p>
+      <div class="row">
+        <label class="f">Αρχείο<input type="file" id="impfile" accept=".csv,.json,text/csv,application/json"></label>
+        <label class="f">Κατηγορία (αν δεν υπάρχει στο αρχείο)<input id="impcat" list="catlist" placeholder="π.χ. Δικηγορικό γραφείο"></label>
+      </div>
+      <div class="actions" style="margin:0"><button class="btn" id="imppreview">Έλεγχος αρχείου</button><button class="btn primary" id="imprun" disabled>Εισαγωγή</button></div>
+      <div id="impres" style="font-size:14px"></div>
+    </div>
+  </section>
+  <datalist id="catlist"></datalist>
+</main>
+</div>
+
+<div class="drawer" id="drawer" hidden><div class="panel" id="drawerpanel"></div></div>
+<div class="toast" id="toast" hidden></div>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.28.1/lib/msal-browser.min.js" integrity="sha384-B5PXeUfgiegchZiX5iMRssMrHd9NfPhFnITob1HyW1CY76udptWpBsniaDsH/+BY" crossorigin="anonymous"></script>
+<script src="app.js"></script>
+</body>
+</html>
