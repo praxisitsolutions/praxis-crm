@@ -499,7 +499,8 @@ function openDrawer(id){
   const gq=encodeURIComponent(o.n||"");
   $("drawerpanel").innerHTML=`
     <div class="callhead"><h1 style="font-size:20px;margin:0">${isNew?"Νέος υποψήφιος":esc(o.n)}</h1><button class="btn small" id="dclose">Κλείσιμο</button></div>
-    ${isNew?"":`<div style="margin-top:8px">${pill(o.status)} <span class="muted" style="font-size:13px">κλήσεις: ${o.attempts||0}</span></div>`}
+    ${isNew?"":`<div style="margin-top:8px">${pill(o.status)} <span class="muted" style="font-size:13px">κλήσεις: ${o.attempts||0}</span></div>
+    <div class="dauditbox"><div class="dahead"><h2 style="margin:0">Έλεγχοι IT</h2><button class="btn small" id="daudit">+ Νέος έλεγχος IT</button></div><div id="daudits" class="daudits muted">Φόρτωση…</div></div>`}
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
       <label class="f">Επωνυμία<input id="d-n" value="${v(o.n)}"></label>
       <div class="row"><label class="f">Κατηγορία<input id="d-cat" list="catlist" value="${v(o.cat)}"></label><label class="f">Περιοχή<input id="d-a" value="${v(o.a)}"></label></div>
@@ -517,7 +518,7 @@ function openDrawer(id){
     </div>
     <div class="actions">
       <button class="btn primary" id="dsave">${isNew?"Προσθήκη":"Αποθήκευση"}</button>
-      ${isNew?"":`<button class="btn" id="dcall">Κάλεσε τώρα</button><button class="btn" id="daudit">Έλεγχος IT</button><button class="btn" id="dhide">${o.hidden?"Επαναφορά":"Απόκρυψη"}</button>`}
+      ${isNew?"":`<button class="btn" id="dcall">Κάλεσε τώρα</button><button class="btn" id="dhide">${o.hidden?"Επαναφορά":"Απόκρυψη"}</button>`}
     </div>
     ${isNew?"":`<h2>Ιστορικό</h2><ul class="hist">${(o.history||[]).slice().reverse().map(x=>`<li><div class="when">${fmtDT(x.t)} · ${esc(x.by||"—")}</div>${pill(x.s)}${x.n?`<div>${esc(x.n)}</div>`:""}</li>`).join("")||'<li class="muted" style="border:0">Δεν έχει κληθεί ακόμα.</li>'}</ul>`}`;
   $("drawer").hidden=false;
@@ -543,6 +544,15 @@ function openDrawer(id){
   if(!isNew){
     $("dcall").onclick=()=>{ closeDrawer(); show("calls"); openCall(id); };
     $("daudit").onclick=()=>{ closeDrawer(); show("audit"); auditOpen(id); };
+    (async()=>{
+      const box=$("daudits"); let rows=[];
+      try{ rows=await fetchAudits(id); }catch(e){ if(box) box.textContent="Δεν φορτώθηκαν οι έλεγχοι: "+e.message; return; }
+      if(!box||!box.isConnected||$("drawer").hidden) return;
+      box.classList.toggle("muted",!rows.length);
+      box.innerHTML=rows.length?rows.map(r=>`<button class="arow" data-rid="${r.id}"><span>${auditLine(r)}</span><span class="go">Άνοιγμα ›</span></button>`).join("")
+        :"Δεν έχει γίνει έλεγχος IT. Πάτα «+ Νέος έλεγχος IT».";
+      box.querySelectorAll("[data-rid]").forEach(b=>b.onclick=()=>{ closeDrawer(); show("audit"); auditOpen(id,null,b.dataset.rid); });
+    })();
     $("dhide").onclick=async()=>{ try{ await patchP(id,{hidden:!o.hidden}); toast(o.hidden?"Εμφανίζεται":"Κρύφτηκε"); closeDrawer(); refreshAll(); }catch(e){ toast(e.message); } };
   }
 }
@@ -610,7 +620,7 @@ const AT=["Backup υπάρχει, εκτός γραφείου, δοκιμασμ�
 const ALEVELS=[["ok","ΟΚ"],["issue","Θέμα"],["crit","Κρίσιμο"]];
 const APLANS=["Starter","Business","Professional","Project"];
 const ADRAFT="crm_audit_draft";
-let auditList=null, auditPid=null, auditItemId=null, auditRows=[], auditLabels=new Map(), auditReady=false;
+let auditList=null, auditPid=null, auditItemId=null, auditRows=[], auditReady=false;
 
 const auditLabel=o=>`${o.n} · ${o.ph||o.a||"#"+o.id}`;
 const todayInput=()=>dayKey(Date.now());
@@ -666,29 +676,67 @@ function auditStatus(){
     r?`Έλεγχος της ${r.at?new Date(r.at).toLocaleDateString("el-GR"):"—"} από ${r.by||"—"}. Η αποθήκευση τον ενημερώνει.`:
     `Νέος έλεγχος για ${o.n}. Τα στοιχεία κρατιούνται πρόχειρα σε αυτή τη συσκευή μέχρι την αποθήκευση.`;
 }
+async function fetchAudits(pid){
+  if(!auditList||!pid) return [];
+  const items=await gAll(`/sites/${site.id}/lists/${auditList.id}/items?$expand=fields&$filter=fields/ProspectId eq ${Number(pid)}&$top=200`);
+  return items.filter(it=>Number((it.fields||{}).ProspectId)===Number(pid)).map(it=>{ const fl=it.fields||{}; let data=null; try{ data=JSON.parse(fl.Data||"null"); }catch(e){}
+    return {id:String(it.id),at:toMs(fl.AuditAt),by:fl.AuditorName||"",plan:fl.Proposal||"",crit:fl.Critical||0,iss:fl.Issues||0,data}; }).sort((a,b)=>(b.at||0)-(a.at||0));
+}
+const auditLine=r=>`${r.at?new Date(r.at).toLocaleDateString("el-GR"):"—"} · ${esc(r.by||"—")}${r.plan?" · "+esc(r.plan):""} · ${r.crit} κρίσιμα, ${r.iss} θέματα`;
 async function auditLoadRows(pid){
   auditRows=[];
-  if(auditList&&pid){
-    try{
-      const items=await gAll(`/sites/${site.id}/lists/${auditList.id}/items?$expand=fields&$filter=fields/ProspectId eq ${Number(pid)}&$top=200`);
-      auditRows=items.map(it=>{ const fl=it.fields||{}; let data=null; try{ data=JSON.parse(fl.Data||"null"); }catch(e){}
-        return {id:String(it.id),at:toMs(fl.AuditAt),by:fl.AuditorName||"",plan:fl.Proposal||"",crit:fl.Critical||0,data}; }).sort((a,b)=>(b.at||0)-(a.at||0));
-    }catch(e){ toast("Δεν φορτώθηκαν οι προηγούμενοι έλεγχοι: "+e.message); }
-  }
+  try{ auditRows=await fetchAudits(pid); }catch(e){ toast("Δεν φορτώθηκαν οι προηγούμενοι έλεγχοι: "+e.message); }
   $("aprev").innerHTML=`<option value="">Νέος έλεγχος</option>`+auditRows.map(r=>`<option value="${r.id}"${r.id===auditItemId?" selected":""}>${r.at?new Date(r.at).toLocaleDateString("el-GR"):"—"} · ${esc(r.by)}${r.plan?" · "+esc(r.plan):""}${r.crit?` · ${r.crit} κρίσιμα`:""}</option>`).join("");
 }
-async function auditOpen(id,draft){
+function auditUnsaved(){ const d=auditDraft(); return !!(d&&d.pid&&d.pid===auditPid&&!d.item); }
+async function auditOpen(id,draft,itemId){
   const o=offices.get(id); if(!o) return;
-  auditPid=id; auditItemId=draft&&draft.item||null;
+  if(auditPid&&auditPid!==id&&auditUnsaved()&&!confirm("Ο έλεγχος που συμπληρώνεις δεν έχει αποθηκευτεί. Να ανοίξει άλλος πελάτης; (Ό,τι δεν αποθήκευσες θα χαθεί)")){ $("aq").value=auditLabel(offices.get(auditPid)); return; }
+  auditPid=id; auditItemId=itemId||(draft&&draft.item)||null;
   $("aq").value=auditLabel(o);
   renderAuditSheet(o,draft&&draft.data);
   auditStatus();
-  await auditLoadRows(id); auditStatus();
+  await auditLoadRows(id);
+  if(itemId){ const r=auditRows.find(x=>x.id===itemId); if(r){ renderAuditSheet(o,r.data); $("aprev").value=r.id; } else auditItemId=null; }
+  auditStatus();
 }
+/* επιλογή πελάτη από τη λίστα του CRM */
+let aqItems=[], aqIdx=-1;
+function aqMatches(q){
+  const now=Date.now(), all=[...offices.values()];
+  if(!q){
+    const appt=all.filter(o=>o.status==="appointment").sort((a,b)=>Math.abs((a.callbackAt||0)-now)-Math.abs((b.callbackAt||0)-now));
+    const leads=all.filter(o=>o.status==="interested"||o.status==="send_info").sort((a,b)=>(b.lastCallAt||0)-(a.lastCallAt||0));
+    const rest=all.filter(o=>!LEADS.has(o.status)).sort((a,b)=>(a.n||"").localeCompare(b.n||"","el"));
+    return [...appt,...leads,...rest].slice(0,40);
+  }
+  const nq=norm(q), dq=q.replace(/\D/g,"");
+  return all.map(o=>{ const n=norm(o.n), hay=norm([o.n,o.p,o.a,o.cat,o.afm,o.em].join(" "));
+      let s=n.startsWith(nq)?0:n.includes(nq)?1:hay.includes(nq)?2:(dq.length>=3&&String(o.ph||"").replace(/\D/g,"").includes(dq))?2:9;
+      return [s,o]; }).filter(x=>x[0]<9).sort((a,b)=>a[0]-b[0]||(a[1].n||"").localeCompare(b[1].n||"","el")).slice(0,40).map(x=>x[1]);
+}
+function aqRender(){
+  const box=$("aqlist"), q=$("aq").value.trim();
+  const cur=auditPid&&offices.get(auditPid); const query=(cur&&q===auditLabel(cur))?"":q;
+  aqItems=aqMatches(query); aqIdx=aqItems.length?0:-1;
+  box.innerHTML=aqItems.length?(query?"":`<div class="aqhead">Ραντεβού και ενδιαφερόμενοι πρώτα · γράψε για αναζήτηση</div>`)+aqItems.map((o,i)=>`<div class="aqopt" role="option" id="aqo${i}" data-i="${i}" aria-selected="${i===aqIdx}"><div class="aqmain"><b>${esc(o.n)}</b><span class="muted">${[o.cat,o.a,o.ph].filter(Boolean).map(esc).join(" · ")}</span></div>${pill(o.status)}</div>`).join("")
+    :`<div class="aqhead">Δεν βρέθηκε. Πρόσθεσέ τον από τη «Λίστα» → «+ Νέος υποψήφιος».</div>`;
+  box.hidden=false; $("aq").setAttribute("aria-expanded","true");
+  box.querySelectorAll(".aqopt").forEach(el=>el.addEventListener("mousedown",e=>{ e.preventDefault(); aqPick(Number(el.dataset.i)); }));
+}
+function aqMove(d){ if(!aqItems.length) return; aqIdx=(aqIdx+d+aqItems.length)%aqItems.length; $("aqlist").querySelectorAll(".aqopt").forEach((el,i)=>el.setAttribute("aria-selected",i===aqIdx)); const el=$("aqo"+aqIdx); if(el) el.scrollIntoView({block:"nearest"}); }
+function aqClose(){ $("aqlist").hidden=true; $("aq").setAttribute("aria-expanded","false"); }
+function aqPick(i){ const o=aqItems[i]; aqClose(); if(o){ $("aq").blur(); auditOpen(o.id); } }
+$("aq").addEventListener("focus",()=>{ $("aq").select(); aqRender(); });
+$("aq").addEventListener("input",aqRender);
+$("aq").addEventListener("keydown",e=>{
+  if(e.key==="ArrowDown"){ e.preventDefault(); if($("aqlist").hidden) aqRender(); else aqMove(1); }
+  else if(e.key==="ArrowUp"){ e.preventDefault(); aqMove(-1); }
+  else if(e.key==="Enter"){ e.preventDefault(); if(aqIdx>=0) aqPick(aqIdx); }
+  else if(e.key==="Escape"){ aqClose(); }
+});
+$("aq").addEventListener("blur",()=>setTimeout(()=>{ aqClose(); const cur=auditPid&&offices.get(auditPid); $("aq").value=cur?auditLabel(cur):""; },120));
 function renderAuditView(){
-  auditLabels=new Map(); const all=[...offices.values()].sort((a,b)=>(a.n||"").localeCompare(b.n||"","el"));
-  for(const o of all) auditLabels.set(auditLabel(o),o.id);
-  $("auditlist").innerHTML=all.map(o=>`<option value="${esc(auditLabel(o))}">`).join("");
   const now=Date.now();
   const appts=[...offices.values()].filter(o=>o.status==="appointment"&&o.callbackAt&&o.callbackAt>now-30*864e5).sort((a,b)=>Math.abs(a.callbackAt-now)-Math.abs(b.callbackAt-now)).slice(0,8);
   $("achips").innerHTML=appts.length?`<span class="muted">Ραντεβού:</span>`+appts.map(o=>`<button class="btn small" data-aid="${o.id}">${esc(o.n)} · ${fmtDT(o.callbackAt)}</button>`).join(""):"";
@@ -737,7 +785,6 @@ $("auditsheet").addEventListener("change",e=>{
   auditSaveDraft();
 });
 $("auditsheet").addEventListener("input",()=>{ clearTimeout(auditSaveDraft._t); auditSaveDraft._t=setTimeout(auditSaveDraft,400); });
-$("aq").addEventListener("change",()=>{ const id=auditLabels.get($("aq").value); if(id) auditOpen(id); });
 $("aprev").onchange=()=>{
   const o=auditPid&&offices.get(auditPid); if(!o) return;
   const r=auditRows.find(x=>x.id===$("aprev").value);
