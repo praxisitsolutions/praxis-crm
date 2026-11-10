@@ -3,7 +3,7 @@
 /* =================== ρυθμίσεις =================== */
 function lsGet(k){ try{ return localStorage.getItem(k)||""; }catch(e){ return ""; } }
 function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
-const CFG = Object.assign({prospectsList:"CRM_Prospects", callsList:"CRM_Calls"}, window.CRM_CONFIG||{});
+const CFG = Object.assign({prospectsList:"CRM_Prospects", callsList:"CRM_Calls", auditsList:"CRM_Audits"}, window.CRM_CONFIG||{});
 CFG.tenantId = CFG.tenantId || lsGet("crm_tenant");
 CFG.clientId = CFG.clientId || lsGet("crm_client");
 CFG.siteUrl  = CFG.siteUrl  || lsGet("crm_site");
@@ -178,12 +178,12 @@ async function addCall(o, c){
 }
 
 /* =================== προβολές =================== */
-const VIEWS=["calls","calendar","list","reports","import"];
+const VIEWS=["calls","calendar","list","audit","reports","import"];
 function show(v){
   if(!VIEWS.includes(v)) v="calls";
   VIEWS.forEach(x=>{ $("view-"+x).hidden=x!==v; $("tab-"+x).setAttribute("aria-selected",x===v); });
   try{ history.replaceState(null,"","#"+v); }catch(e){}
-  if(v==="list") renderList(); if(v==="reports") renderReports(); if(v==="calendar") renderCalendar();
+  if(v==="list") renderList(); if(v==="reports") renderReports(); if(v==="calendar") renderCalendar(); if(v==="audit") renderAuditView();
   if(v==="calls" && !currentId && pca && site && lists.p) nextCall();
 }
 document.querySelectorAll("nav.tabs button").forEach(b=>b.addEventListener("click",()=>show(b.dataset.view)));
@@ -517,7 +517,7 @@ function openDrawer(id){
     </div>
     <div class="actions">
       <button class="btn primary" id="dsave">${isNew?"Προσθήκη":"Αποθήκευση"}</button>
-      ${isNew?"":`<button class="btn" id="dcall">Κάλεσε τώρα</button><button class="btn" id="dhide">${o.hidden?"Επαναφορά":"Απόκρυψη"}</button>`}
+      ${isNew?"":`<button class="btn" id="dcall">Κάλεσε τώρα</button><button class="btn" id="daudit">Έλεγχος IT</button><button class="btn" id="dhide">${o.hidden?"Επαναφορά":"Απόκρυψη"}</button>`}
     </div>
     ${isNew?"":`<h2>Ιστορικό</h2><ul class="hist">${(o.history||[]).slice().reverse().map(x=>`<li><div class="when">${fmtDT(x.t)} · ${esc(x.by||"—")}</div>${pill(x.s)}${x.n?`<div>${esc(x.n)}</div>`:""}</li>`).join("")||'<li class="muted" style="border:0">Δεν έχει κληθεί ακόμα.</li>'}</ul>`}`;
   $("drawer").hidden=false;
@@ -542,6 +542,7 @@ function openDrawer(id){
   };
   if(!isNew){
     $("dcall").onclick=()=>{ closeDrawer(); show("calls"); openCall(id); };
+    $("daudit").onclick=()=>{ closeDrawer(); show("audit"); auditOpen(id); };
     $("dhide").onclick=async()=>{ try{ await patchP(id,{hidden:!o.hidden}); toast(o.hidden?"Εμφανίζεται":"Κρύφτηκε"); closeDrawer(); refreshAll(); }catch(e){ toast(e.message); } };
   }
 }
@@ -589,6 +590,165 @@ $("btn-csv-calls").onclick=()=>{
   const rows=[["Ημερομηνία","Υποψήφιος","Κατηγορία","Τηλέφωνο","Αποτέλεσμα","Σημείωση","Επανάκληση","Συνεργάτης"]];
   for(const c of calls){ const o=offices.get(c.pid)||{}; rows.push([fmtDT(c.t),o.n,o.cat,o.ph,(S[c.s]||{}).l||c.s,c.n,c.cb?fmtDT(c.cb):"",c.by]); }
   downloadCsv(`istoriko-kliseon-${dayKey(Date.now())}.csv`,rows);
+};
+
+/* =================== έλεγχος IT =================== */
+const AUDIT_COLUMNS=[["ProspectId","number",true],["AuditAt","dateTime"],["AuditorName","text"],["Proposal","text"],["Critical","number"],["Issues","number"],["Data","note"]];
+const AQ=[
+  {k:"breaks", q:"Τι σας χαλάει πιο συχνά;", o:["Internet","Εκτυπωτές","Αργοί Η/Υ","Email","Πρόγραμμα λογιστικής"]},
+  {k:"who",    q:"Ποιος το φτιάχνει σήμερα;", o:["Κανείς","Γνωστός","Freelancer","Εταιρεία IT"], one:true},
+  {k:"speed",  q:"Πόσο γρήγορα έρχεται;", o:["Ίδια μέρα","1–2 μέρες","Όποτε μπορεί"], one:true},
+  {k:"down",   q:"Ακινησία στην τελευταία βλάβη", o:["Κάτω από 1 ώρα","Μισή μέρα","1+ μέρα"], one:true},
+  {k:"loss",   q:"Αν χαλάσει ο Η/Υ με τα αρχεία, τι γίνεται;", o:["Υπάρχει backup","Δεν ξέρω","Χάνονται"], one:true},
+  {k:"remote", q:"Δουλεύετε από έξω (σπίτι, κινητό);", o:["Ναι","Όχι"], one:true},
+  {k:"clients",q:"Οι πελάτες σας ζητούν βοήθεια για IT ή τιμολόγηση;", o:["Συχνά","Σπάνια","Ποτέ"], one:true},
+  {k:"plans",  q:"Σχέδια επόμενων 12 μηνών", o:["Νέα άτομα","Μετακόμιση","Νέο λογισμικό","Τίποτα"]}];
+const AT=["Backup υπάρχει, εκτός γραφείου, δοκιμασμένο","Router / firewall επαγγελματικό, ενημερωμένο","WiFi με ξεχωριστό δίκτυο επισκεπτών",
+  "Windows 10/11 ενημερωμένα, χωρίς παλιές εκδόσεις","Antivirus ενεργό σε όλους τους Η/Υ","Ξεχωριστοί κωδικοί ανά χρήστη, όχι κοινοί",
+  "Email σε δικό τους domain, με 2FA","Απομακρυσμένη πρόσβαση ασφαλής (όχι ανοιχτό AnyDesk/RDP)","UPS στον server / κύριο Η/Υ",
+  "Εκτυπωτές και σαρωτές λειτουργούν σωστά","Λογισμικό λογιστικής / τιμολόγησης σταθερό"];
+const ALEVELS=[["ok","ΟΚ"],["issue","Θέμα"],["crit","Κρίσιμο"]];
+const APLANS=["Starter","Business","Professional","Project"];
+const ADRAFT="crm_audit_draft";
+let auditList=null, auditPid=null, auditItemId=null, auditRows=[], auditLabels=new Map(), auditReady=false;
+
+const auditLabel=o=>`${o.n} · ${o.ph||o.a||"#"+o.id}`;
+const todayInput=()=>dayKey(Date.now());
+function abox(g,val,checked,lbl,one,aria){
+  return `<label class="ab"><input type="checkbox" data-g="${esc(g)}"${one?' data-one="1"':""} value="${esc(val)}"${checked?" checked":""}${aria?` aria-label="${esc(aria)}"`:""}>${lbl?" "+esc(lbl):""}</label>`;
+}
+function renderAuditSheet(o,d){
+  d=d||{}; const info=d.info||{}, q=d.q||{}, t=d.t||[], f=d.f||[], nx=d.next||{};
+  const v=(x,def)=>esc(x!=null&&x!==""?x:(def??""));
+  const sh=$("auditsheet");
+  sh.innerHTML=`
+    <div class="shead"><h1>Checklist Ελέγχου IT</h1><span class="co"><img class="slogo" src="praxis-logo.svg" alt="PRAXIS iT — Technology. Put to work."></span></div>
+    <div class="ainfo">
+      <label>Επιχείρηση<input type="text" id="ai-n" value="${v(info.n,o&&o.n)}"></label>
+      <label>Υπεύθυνος<input type="text" id="ai-p" value="${v(info.p,o&&o.p)}"></label>
+      <label>Ημερομηνία<input type="date" id="ai-date" value="${v(info.date,o?todayInput():"")}"></label>
+      <label>Άτομα / Η/Υ<input type="text" id="ai-staff" value="${v(info.staff,o&&o.employees!=null?String(o.employees):"")}"></label>
+    </div>
+    <h3>Ερωτήσεις προς τον πελάτη</h3>
+    <div class="tablewrap"><table><thead><tr><th style="width:42%">Ερώτηση</th><th>Απάντηση</th></tr></thead><tbody>
+      ${AQ.map(x=>`<tr><td>${esc(x.q)}</td><td>${x.o.map(opt=>abox("q_"+x.k,opt,(q[x.k]||[]).includes(opt),opt,x.one)).join("")}</td></tr>`).join("")}
+    </tbody></table></div>
+    <h3>Τεχνικός έλεγχος</h3>
+    <div class="tablewrap"><table><thead><tr><th>Σημείο</th>${ALEVELS.map(([,l])=>`<th class="c">${l}</th>`).join("")}<th style="width:26%">Σημείωση</th></tr></thead><tbody>
+      ${AT.map((p,i)=>{ const cur=(t[i]||{}).s||""; return `<tr><td>${esc(p)}</td>${ALEVELS.map(([k,l])=>`<td class="c">${abox("t"+i,k,cur===k,"",true,p+": "+l)}</td>`).join("")}<td><input type="text" id="at-n${i}" value="${v((t[i]||{}).n)}" aria-label="Σημείωση: ${esc(p)}"></td></tr>`; }).join("")}
+    </tbody></table></div>
+    <h3>Ευρήματα και επόμενο βήμα</h3>
+    <div class="agrid">
+      <div class="afind">${[0,1,2].map(i=>`<label><span class="mono">${i+1}.</span><input type="text" id="af${i}" value="${v(f[i])}" aria-label="Εύρημα ${i+1}"></label>`).join("")}</div>
+      <div class="anext">
+        ${abox("nx_report","1",!!nx.report,"Αποστολή αναφοράς σε 24 ώρες")}
+        <label class="ameet">Δεύτερη συνάντηση<input type="datetime-local" id="an-meet" value="${v(nx.meet)}"></label>
+        <div><span class="muted">Πρόταση:</span> ${APLANS.map(p=>abox("nx_plan",p,nx.plan===p,p,true)).join("")}</div>
+      </div>
+    </div>
+    <div class="afoot"><span>PRAXIS IT SOLUTIONS Ε.Ε. · 210 444 0218 · info@praxisit.gr · praxisit.gr</span><span>${o?esc(o.ph||""):""}</span></div>`;
+}
+function auditCollect(){
+  const sh=$("auditsheet"); const val=id=>{ const el=sh.querySelector("#"+id); return el?el.value.trim():""; };
+  const gv=g=>[...sh.querySelectorAll(`input[data-g="${g}"]:checked`)].map(x=>x.value);
+  return {v:1, info:{n:val("ai-n"),p:val("ai-p"),date:val("ai-date"),staff:val("ai-staff")},
+    q:Object.fromEntries(AQ.map(x=>[x.k,gv("q_"+x.k)])),
+    t:AT.map((_,i)=>({s:gv("t"+i)[0]||"",n:val("at-n"+i)})),
+    f:[0,1,2].map(i=>val("af"+i)),
+    next:{report:gv("nx_report").length>0, meet:$("an-meet")?$("an-meet").value:"", plan:gv("nx_plan")[0]||""}};
+}
+function auditSaveDraft(){ if(!$("auditsheet").innerHTML) return; lsSet(ADRAFT,JSON.stringify({pid:auditPid,item:auditItemId,data:auditCollect()})); }
+function auditDraft(){ try{ return JSON.parse(lsGet(ADRAFT)||"null"); }catch(e){ return null; } }
+function auditStatus(){
+  const o=auditPid&&offices.get(auditPid);
+  const r=auditItemId&&auditRows.find(x=>x.id===auditItemId);
+  $("astatus").textContent=!o?"Κενό φύλλο. Για αποθήκευση διάλεξε πρώτα πελάτη από τη λίστα.":
+    r?`Έλεγχος της ${r.at?new Date(r.at).toLocaleDateString("el-GR"):"—"} από ${r.by||"—"}. Η αποθήκευση τον ενημερώνει.`:
+    `Νέος έλεγχος για ${o.n}. Τα στοιχεία κρατιούνται πρόχειρα σε αυτή τη συσκευή μέχρι την αποθήκευση.`;
+}
+async function auditLoadRows(pid){
+  auditRows=[];
+  if(auditList&&pid){
+    try{
+      const items=await gAll(`/sites/${site.id}/lists/${auditList.id}/items?$expand=fields&$filter=fields/ProspectId eq ${Number(pid)}&$top=200`);
+      auditRows=items.map(it=>{ const fl=it.fields||{}; let data=null; try{ data=JSON.parse(fl.Data||"null"); }catch(e){}
+        return {id:String(it.id),at:toMs(fl.AuditAt),by:fl.AuditorName||"",plan:fl.Proposal||"",crit:fl.Critical||0,data}; }).sort((a,b)=>(b.at||0)-(a.at||0));
+    }catch(e){ toast("Δεν φορτώθηκαν οι προηγούμενοι έλεγχοι: "+e.message); }
+  }
+  $("aprev").innerHTML=`<option value="">Νέος έλεγχος</option>`+auditRows.map(r=>`<option value="${r.id}"${r.id===auditItemId?" selected":""}>${r.at?new Date(r.at).toLocaleDateString("el-GR"):"—"} · ${esc(r.by)}${r.plan?" · "+esc(r.plan):""}${r.crit?` · ${r.crit} κρίσιμα`:""}</option>`).join("");
+}
+async function auditOpen(id,draft){
+  const o=offices.get(id); if(!o) return;
+  auditPid=id; auditItemId=draft&&draft.item||null;
+  $("aq").value=auditLabel(o);
+  renderAuditSheet(o,draft&&draft.data);
+  auditStatus();
+  await auditLoadRows(id); auditStatus();
+}
+function renderAuditView(){
+  auditLabels=new Map(); const all=[...offices.values()].sort((a,b)=>(a.n||"").localeCompare(b.n||"","el"));
+  for(const o of all) auditLabels.set(auditLabel(o),o.id);
+  $("auditlist").innerHTML=all.map(o=>`<option value="${esc(auditLabel(o))}">`).join("");
+  const now=Date.now();
+  const appts=[...offices.values()].filter(o=>o.status==="appointment"&&o.callbackAt&&o.callbackAt>now-30*864e5).sort((a,b)=>Math.abs(a.callbackAt-now)-Math.abs(b.callbackAt-now)).slice(0,8);
+  $("achips").innerHTML=appts.length?`<span class="muted">Ραντεβού:</span>`+appts.map(o=>`<button class="btn small" data-aid="${o.id}">${esc(o.n)} · ${fmtDT(o.callbackAt)}</button>`).join(""):"";
+  $("achips").querySelectorAll("[data-aid]").forEach(b=>b.onclick=()=>auditOpen(b.dataset.aid));
+  if(!auditReady){
+    auditReady=true;
+    const d=auditDraft();
+    if(d&&d.pid&&offices.has(d.pid)){ auditOpen(d.pid,d); return; }
+    if(d&&!d.pid){ renderAuditSheet(null,d.data); auditStatus(); return; }
+    renderAuditSheet(null,{}); auditStatus();
+  }
+}
+async function ensureAuditList(){
+  if(auditList) return auditList;
+  auditList=await findList(CFG.auditsList);
+  if(!auditList) auditList=await g(`/sites/${site.id}/lists`,{method:"POST",scopes:MANAGE_SCOPES,body:{displayName:CFG.auditsList,list:{template:"genericList"},columns:AUDIT_COLUMNS.map(colDef)}});
+  return auditList;
+}
+async function auditSave(){
+  const o=auditPid&&offices.get(auditPid);
+  if(!o){ toast("Διάλεξε πρώτα πελάτη από τη λίστα"); $("aq").focus(); return; }
+  auditSaveDraft();
+  const d=auditCollect();
+  const crit=d.t.filter(x=>x.s==="crit").length, iss=d.t.filter(x=>x.s==="issue").length;
+  const at=d.info.date?new Date(d.info.date+"T12:00").getTime():Date.now();
+  const fields={Title:(d.info.n||o.n).slice(0,255),ProspectId:Number(o.id),AuditAt:toIso(at),AuditorName:me.name,Proposal:d.next.plan,Critical:crit,Issues:iss,Data:JSON.stringify(d)};
+  const btn=$("asave"); btn.disabled=true;
+  try{
+    await ensureAuditList();
+    const isNew=!auditItemId;
+    if(isNew){ const it=await g(`/sites/${site.id}/lists/${auditList.id}/items`,{method:"POST",body:{fields}}); auditItemId=String(it.id); }
+    else await g(`/sites/${site.id}/lists/${auditList.id}/items/${auditItemId}/fields`,{method:"PATCH",body:fields});
+    if(isNew){
+      const line=`[${fmtDT(Date.now())} ${me.name}] Έλεγχος IT: ${crit} κρίσιμα, ${iss} θέματα${d.next.plan?" · πρόταση "+d.next.plan:""}`;
+      try{ await patchP(o.id,{notes:(o.notes?o.notes+"\n":"")+line}); }catch(e){}
+    }
+    clearTimeout(auditSaveDraft._t); try{ localStorage.removeItem(ADRAFT); }catch(e){}
+    await auditLoadRows(o.id); auditStatus();
+    toast(isNew?"Ο έλεγχος αποθηκεύτηκε":"Ο έλεγχος ενημερώθηκε");
+  }catch(e){ toast("Δεν αποθηκεύτηκε: "+(e.message||"σφάλμα")); }
+  finally{ btn.disabled=false; }
+}
+$("auditsheet").addEventListener("change",e=>{
+  const t=e.target;
+  if(t.dataset&&t.dataset.one&&t.checked) $("auditsheet").querySelectorAll(`input[data-g="${t.dataset.g}"]`).forEach(x=>{ if(x!==t) x.checked=false; });
+  auditSaveDraft();
+});
+$("auditsheet").addEventListener("input",()=>{ clearTimeout(auditSaveDraft._t); auditSaveDraft._t=setTimeout(auditSaveDraft,400); });
+$("aq").addEventListener("change",()=>{ const id=auditLabels.get($("aq").value); if(id) auditOpen(id); });
+$("aprev").onchange=()=>{
+  const o=auditPid&&offices.get(auditPid); if(!o) return;
+  const r=auditRows.find(x=>x.id===$("aprev").value);
+  auditItemId=r?r.id:null; renderAuditSheet(o,r?r.data:null); auditSaveDraft(); auditStatus();
+};
+$("asave").onclick=auditSave;
+$("aprint").onclick=()=>window.print();
+$("ablank").onclick=()=>{
+  if(auditPid&&!confirm("Θα ανοίξει κενό φύλλο. Ό,τι δεν αποθήκευσες μένει στο πρόχειρο μόνο μέχρι να γράψεις στο κενό. Συνέχεια;")) return;
+  auditPid=null; auditItemId=null; $("aq").value=""; $("aprev").innerHTML=`<option value="">Νέος έλεγχος</option>`;
+  renderAuditSheet(null,{}); auditStatus(); setTimeout(()=>window.print(),50);
 };
 
 /* =================== εισαγωγή =================== */
@@ -687,6 +847,7 @@ async function boot(){
       return;
     }
     await load();
+    try{ auditList=await findList(CFG.auditsList); }catch(e){ auditList=null; }
   }catch(e){
     banner(e.status===403||e.status===401?"Δεν έχεις πρόσβαση στο SharePoint site ή δεν δόθηκε συναίνεση στην εφαρμογή. Δες το README (βήμα 1-2).":(e.status===404?"Δεν βρέθηκε το SharePoint site: "+CFG.siteUrl:"Σφάλμα σύνδεσης: "+e.message));
     return;

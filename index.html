@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Praxis CRM Κλήσεων</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<title>PRAXIS iT · CRM Κλήσεων</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="app.css">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='9' fill='%230b6e5c'/%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="praxis-x.svg">
 </head>
 <body>
 
 <div class="login" id="login" hidden>
   <div class="card">
-    <div class="brand"><span class="dot"></span>Praxis CRM Κλήσεων</div>
+    <div class="brand"><img class="logo" src="praxis-logo-wordmark.svg" alt="PRAXIS iT"><span class="app">CRM</span></div>
     <h1>Σύνδεση</h1>
     <p class="muted" style="margin:0;font-size:14px">Σύνδεση με τον εταιρικό λογαριασμό Microsoft 365. Τα δεδομένα αποθηκεύονται σε λίστες του SharePoint.</p>
     <div class="err" id="lerr"></div>
@@ -22,7 +22,7 @@
 
 <div class="login" id="setup" hidden>
   <form class="card" id="setupform" style="width:min(520px,100%)">
-    <div class="brand"><span class="dot"></span>Praxis CRM Κλήσεων</div>
+    <div class="brand"><img class="logo" src="praxis-logo-wordmark.svg" alt="PRAXIS iT"><span class="app">CRM</span></div>
     <h1>Ρυθμίσεις σύνδεσης</h1>
     <p class="muted" style="margin:0;font-size:14px">Λείπουν στοιχεία από το <code>config.js</code>. Μπορείς να τα γράψεις εδώ (αποθηκεύονται μόνο σε αυτόν τον browser) ή μόνιμα στο config.js. Οδηγίες στο README.</p>
     <label class="f">Directory (tenant) ID<input id="cf-tenant" required></label>
@@ -34,11 +34,12 @@
 
 <div id="app" hidden>
 <header class="top"><div class="wrap">
-  <div class="brand"><span class="dot"></span>Praxis CRM Κλήσεων</div>
+  <div class="brand"><img class="logo" src="praxis-logo-wordmark.svg" alt="PRAXIS iT"><span class="app">CRM</span></div>
   <nav class="tabs" role="tablist">
     <button role="tab" data-view="calls" aria-selected="true" id="tab-calls">Κλήσεις</button>
     <button role="tab" data-view="calendar" aria-selected="false" id="tab-calendar">Ημερολόγιο</button>
     <button role="tab" data-view="list" aria-selected="false" id="tab-list">Λίστα</button>
+    <button role="tab" data-view="audit" aria-selected="false" id="tab-audit">Έλεγχος IT</button>
     <button role="tab" data-view="reports" aria-selected="false" id="tab-reports">Αναφορές</button>
     <button role="tab" data-view="import" aria-selected="false" id="tab-import">Εισαγωγή</button>
   </nav>
@@ -102,6 +103,22 @@
       <thead><tr><th>Επωνυμία</th><th>Κατηγορία</th><th>Περιοχή</th><th>Τηλέφωνο</th><th>Κατάσταση</th><th>Κλήσεις</th><th>Τελευταία</th><th>Σημείωση</th></tr></thead>
       <tbody id="tbody"></tbody>
     </table></div>
+  </section>
+
+  <section id="view-audit" hidden>
+    <div class="auditbar noprint">
+      <label class="f">Πελάτης / υποψήφιος<input type="search" id="aq" list="auditlist" placeholder="Γράψε επωνυμία ή τηλέφωνο και διάλεξε" autocomplete="off"></label>
+      <label class="f" style="flex:0 1 240px">Έλεγχοι πελάτη<select id="aprev"><option value="">Νέος έλεγχος</option></select></label>
+      <div class="actions" style="margin:0">
+        <button class="btn primary" id="asave">Αποθήκευση</button>
+        <button class="btn" id="aprint">Εκτύπωση / PDF</button>
+        <button class="btn" id="ablank">Κενό για εκτύπωση</button>
+      </div>
+    </div>
+    <datalist id="auditlist"></datalist>
+    <div class="achips noprint" id="achips"></div>
+    <p class="muted noprint" id="astatus" style="font-size:13px;margin:8px 0 0"></p>
+    <div class="card sheet" id="auditsheet"></div>
   </section>
 
   <section id="view-reports" hidden>

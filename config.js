@@ -4,5 +4,6 @@ window.CRM_CONFIG = {
   clientId: "76ec1e3c-688e-46f5-9086-3bad83f74858",   // Application (client) ID της εφαρμογής «Praxis CRM» στο Entra
   siteUrl:  "https://reinaldogr.sharepoint.com/sites/praxis",
   prospectsList: "CRM_Prospects",
-  callsList: "CRM_Calls"
+  callsList: "CRM_Calls",
+  auditsList: "CRM_Audits"   // έλεγχοι IT (δημιουργείται αυτόματα στην πρώτη αποθήκευση)
 };
