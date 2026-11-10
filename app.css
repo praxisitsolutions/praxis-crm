@@ -250,3 +250,32 @@ td.sect{font-weight:600;background:var(--soft)} td.sect.late{color:var(--bad)}
 .apick>label{font-size:13px;color:var(--muted);font-weight:500}
 .dauditbox{margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--panel);display:flex;flex-direction:column;gap:10px}
 .dahead{display:flex;justify-content:space-between;align-items:center;gap:10px}
+
+/* κινητό */
+.ml{display:none}
+@media screen and (max-width:700px){
+  header.top .wrap{gap:8px;padding-block:8px}
+  header.top .brand{order:1}
+  header.top a.btn{order:2;margin-left:auto}
+  header.top .userchip{order:3}
+  header.top .userchip .who{display:none}
+  nav.tabs{order:4;width:100%;margin-left:0;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;gap:2px}
+  nav.tabs::-webkit-scrollbar{display:none}
+  nav.tabs button{white-space:nowrap;padding:7px 10px;flex:none}
+  .sheet{padding:14px}
+  .sheet .qtab thead,.sheet .ttab thead{display:none}
+  .sheet .qtab tr,.sheet .ttab tr{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:12px 10px;border-bottom:1px solid var(--line)}
+  .sheet .qtab td,.sheet .ttab td{display:block;border:0;padding:0;width:auto}
+  .sheet .qtab td:first-child,.sheet .ttab td:first-child{grid-column:1/-1;font-weight:600}
+  .sheet .qtab td:nth-child(2),.sheet .ttab td:last-child{grid-column:1/-1}
+  .sheet .qtab .ab{margin:4px 14px 4px 0}
+  .sheet .ab input{width:20px;height:20px}
+  .sheet .ttab td.c .ab{display:flex;justify-content:center;gap:6px;width:100%;margin:0;padding:9px 6px;border:1px solid var(--line);border-radius:9px;font-weight:600;font-size:13px}
+  .ml{display:inline}
+  .sheet .ttab td.c-ok .ab:has(input:checked){border-color:var(--good);background:var(--good-soft)}
+  .sheet .ttab td.c-issue .ab:has(input:checked){border-color:var(--warn);background:var(--warn-soft)}
+  .sheet .ttab td.c-crit .ab:has(input:checked){border-color:var(--bad);background:var(--bad-soft)}
+  .sheet input[type=text]{font-size:16px}
+  .sheet .slogo{height:34px}
+}
+@media print{ .sheet input::placeholder{color:transparent} }

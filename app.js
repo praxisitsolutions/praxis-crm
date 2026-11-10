@@ -411,6 +411,13 @@ async function removeEvent(o,keepField){
 
 /* =================== ειδοποιήσεις =================== */
 const notified=new Set();
+let swReg=null;
+async function registerSW(){
+  if(!("serviceWorker" in navigator)) return;
+  try{ swReg=await navigator.serviceWorker.register("sw.js"); }catch(e){}
+  navigator.serviceWorker.addEventListener("message",e=>{ if(e.data&&e.data.type==="open"){ const m=new URL(e.data.url).hash.match(/^#open=(\d+)$/); if(m&&offices.has(m[1])) openItem(m[1]); } });
+}
+registerSW();
 function askNotify(){ try{ if("Notification" in window && Notification.permission==="default") Notification.requestPermission(); }catch(e){} }
 function checkDue(){
   const now=Date.now();
@@ -421,7 +428,11 @@ function checkDue(){
     b.innerHTML=`<span>⏰ Ώρα για επανάκληση: <b>${esc(o.n)}</b> ${esc(o.ph)}</span><span style="display:flex;gap:6px"><button class="btn small primary" id="due-open">Άνοιγμα</button><button class="btn small" id="due-x">Αργότερα</button></span>`;
     $("due-open").onclick=()=>{ b.hidden=true; openItem(o.id); };
     $("due-x").onclick=()=>{ b.hidden=true; };
-    try{ if("Notification" in window && Notification.permission==="granted"){ const n=new Notification("Επανάκληση: "+o.n,{body:(o.ph||"")+(o.p?" · "+o.p:""),tag:"crm-"+o.id}); n.onclick=()=>{ window.focus(); openItem(o.id); n.close(); }; } }catch(e){}
+    try{ if("Notification" in window && Notification.permission==="granted"){
+      const title="Επανάκληση: "+o.n, opt={body:(o.ph||"")+(o.p?" · "+o.p:""),tag:"crm-"+o.id,icon:"icon-192.png",badge:"icon-192.png",data:{url:APP_URL+"#open="+o.id}};
+      if(swReg) swReg.showNotification(title,opt).catch(()=>{});
+      else { const n=new Notification(title,opt); n.onclick=()=>{ window.focus(); openItem(o.id); n.close(); }; }
+    } }catch(e){}
   }
 }
 
@@ -640,12 +651,12 @@ function renderAuditSheet(o,d){
       <label>Άτομα / Η/Υ<input type="text" id="ai-staff" value="${v(info.staff,o&&o.employees!=null?String(o.employees):"")}"></label>
     </div>
     <h3>Ερωτήσεις προς τον πελάτη</h3>
-    <div class="tablewrap"><table><thead><tr><th style="width:42%">Ερώτηση</th><th>Απάντηση</th></tr></thead><tbody>
+    <div class="tablewrap"><table class="qtab"><thead><tr><th style="width:42%">Ερώτηση</th><th>Απάντηση</th></tr></thead><tbody>
       ${AQ.map(x=>`<tr><td>${esc(x.q)}</td><td>${x.o.map(opt=>abox("q_"+x.k,opt,(q[x.k]||[]).includes(opt),opt,x.one)).join("")}</td></tr>`).join("")}
     </tbody></table></div>
     <h3>Τεχνικός έλεγχος</h3>
-    <div class="tablewrap"><table><thead><tr><th>Σημείο</th>${ALEVELS.map(([,l])=>`<th class="c">${l}</th>`).join("")}<th style="width:26%">Σημείωση</th></tr></thead><tbody>
-      ${AT.map((p,i)=>{ const cur=(t[i]||{}).s||""; return `<tr><td>${esc(p)}</td>${ALEVELS.map(([k,l])=>`<td class="c">${abox("t"+i,k,cur===k,"",true,p+": "+l)}</td>`).join("")}<td><input type="text" id="at-n${i}" value="${v((t[i]||{}).n)}" aria-label="Σημείωση: ${esc(p)}"></td></tr>`; }).join("")}
+    <div class="tablewrap"><table class="ttab"><thead><tr><th>Σημείο</th>${ALEVELS.map(([,l])=>`<th class="c">${l}</th>`).join("")}<th style="width:26%">Σημείωση</th></tr></thead><tbody>
+      ${AT.map((p,i)=>{ const cur=(t[i]||{}).s||""; return `<tr><td>${esc(p)}</td>${ALEVELS.map(([k,l])=>`<td class="c c-${k}">${abox("t"+i,k,cur===k,"",true,p+": "+l).replace("</label>",`<span class="ml">${l}</span></label>`)}</td>`).join("")}<td><input type="text" id="at-n${i}" placeholder="Σημείωση" value="${v((t[i]||{}).n)}" aria-label="Σημείωση: ${esc(p)}"></td></tr>`; }).join("")}
     </tbody></table></div>
     <h3>Ευρήματα και επόμενο βήμα</h3>
     <div class="agrid">
