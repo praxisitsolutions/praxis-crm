@@ -279,3 +279,13 @@ td.sect{font-weight:600;background:var(--soft)} td.sect.late{color:var(--bad)}
   .sheet .slogo{height:34px}
 }
 @media print{ .sheet input::placeholder{color:transparent} }
+
+/* επιλογή κατηγορίας κλήσεων */
+.qchips{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:18px}
+.qchips .qlab{font-size:13px;font-weight:600;color:var(--muted);margin-right:2px}
+.qchip{font:inherit;font-size:14px;font-weight:600;display:inline-flex;align-items:center;gap:8px;padding:8px 14px;min-height:40px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+.qchip .n{font-variant-numeric:tabular-nums;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--soft);color:var(--muted)}
+.qchip:hover{border-color:var(--accent)}
+.qchip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.qchip[aria-pressed="true"] .n{background:rgba(255,255,255,.18);color:var(--accent-ink)}
+@media (max-width:700px){ .qchips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-top:12px} .qchips::-webkit-scrollbar{display:none} .qchip{flex:none} }

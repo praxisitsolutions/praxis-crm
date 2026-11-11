@@ -224,8 +224,29 @@ async function nextCall(){
   currentId=null; renderCallCard();
 }
 $("btn-next").onclick=()=>{ if(currentId) skipped.add(currentId); nextCall(); };
-$("qarea").onchange=$("qcat").onchange=()=>{ skipped.clear(); renderQueueCount(); nextCall(); };
+$("qarea").onchange=$("qcat").onchange=()=>{
+  lsSet("crm_qcat",$("qcat").value); skipped.clear(); renderQueueCount();
+  const o=currentId&&offices.get(currentId), cat=$("qcat").value, area=$("qarea").value;
+  if(o && (!cat||o.cat===cat) && (!area||o.a===area)) return;
+  nextCall();
+};
+let qcatRestored=false;
+function restoreQcat(){
+  if(qcatRestored) return; const sel=$("qcat"); if(sel.options.length<2) return; qcatRestored=true;
+  const want=lsGet("crm_qcat")||""; if(want && [...sel.options].some(o=>o.value===want)) sel.value=want;
+}
+function renderQChips(){
+  const box=$("qchips"); if(!box) return; restoreQcat();
+  const now=Date.now(), area=$("qarea").value, cur=$("qcat").value;
+  const counts=new Map(); let all=0;
+  for(const o of offices.values()){ if(!o.ph||!inQueue(o,now)||(area&&o.a!==area)) continue; all++; const c=o.cat||"Χωρίς κατηγορία"; counts.set(c,(counts.get(c)||0)+1); }
+  const cats=[...$("qcat").options].map(o=>o.value).filter(Boolean);
+  const chip=(v,label,n)=>`<button type="button" class="qchip" data-cat="${esc(v)}" aria-pressed="${v===cur}">${esc(label)} <span class="n">${n}</span></button>`;
+  box.innerHTML=`<span class="qlab">Τι καλούμε:</span>`+chip("","Όλες",all)+cats.map(c=>chip(c,c,counts.get(c)||0)).join("");
+  box.querySelectorAll(".qchip").forEach(b=>b.onclick=()=>{ if($("qcat").value===b.dataset.cat) return; $("qcat").value=b.dataset.cat; $("qcat").onchange(); });
+}
 function renderQueueCount(){
+  renderQChips();
   const q=queueList(), now=Date.now();
   const due=q.filter(o=>o.status==="callback").length;
   const later=[...offices.values()].filter(o=>!o.hidden&&o.status==="callback"&&(o.callbackAt||0)>now).length;
@@ -485,6 +506,7 @@ function fillSelects(){
   const used=[...new Set([...offices.values()].map(o=>o.cat).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"el"));
   for(const sel of [$("qarea"),$("farea")]){ const cur=sel.value; sel.innerHTML=`<option value="">Όλες οι περιοχές</option>`+areas.map(a=>`<option${a===cur?" selected":""}>${esc(a)}</option>`).join(""); }
   for(const sel of [$("qcat"),$("fcat"),$("rcat")]){ const cur=sel.value; sel.innerHTML=`<option value="">${sel.id==="rcat"?"Όλες":"Όλες οι κατηγορίες"}</option>`+used.map(a=>`<option${a===cur?" selected":""}>${esc(a)}</option>`).join(""); }
+  restoreQcat();
   $("catlist").innerHTML=cats().map(c=>`<option value="${esc(c)}">`).join("");
   if($("fstatus").options.length<2) $("fstatus").innerHTML+=STATUSES.map(s=>`<option value="${s.k}">${esc(s.l)}</option>`).join("");
 }
